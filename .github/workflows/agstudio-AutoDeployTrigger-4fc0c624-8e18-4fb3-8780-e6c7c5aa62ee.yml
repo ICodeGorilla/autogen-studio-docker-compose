@@ -30,25 +30,33 @@ jobs:
           tenant-id: ${{ secrets.AGSTUDIO_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AGSTUDIO_AZURE_SUBSCRIPTION_ID }}
 
-      # Step 3: Build Docker images using docker-compose and push to Azure Container Registry (ACR)
-      - name: Build and push container images
+      # Step 3: Log in to Azure Container Registry (ACR)
+      - name: Azure Container Registry Login
         run: |
-          # Log in to ACR
+          # Log in to ACR using the ACR name from secrets
           az acr login --name ${{ secrets.AGSTUDIO_ACR_NAME }}
 
-          # Tag and push images using docker-compose
+      # Step 4: Build and Push Docker Images
+      - name: Build and push container images
+        run: |
+          # Build the Docker images defined in docker-compose.yml
           docker-compose build
+
+          # Push the Docker images to the Azure Container Registry
           docker-compose push
 
-      # Step 4: Deploy to Azure Container Apps
+      # Step 5: Deploy to Azure Container Apps
       - name: Deploy to Azure Container Apps
         run: |
-          # Create or update Azure Container Apps with docker-compose images
+          # Define the full ACR registry URL
+          $acrUrl = $(az acr show --name ${{ secrets.AGSTUDIO_ACR_NAME }} --query "loginServer" -o tsv)
+
+          # Deploy the container app to Azure using the pushed image
           az containerapp create \
             --name agstudio \
             --resource-group DefaultResourceGroup-EUS \
             --environment agstudio-env \
-            --image ${{ secrets.AGSTUDIO_ACR_URL }}/agstudio:${{ github.sha }} \
+            --image $acrUrl/agstudio:${{ github.sha }} \
             --target-port 8081 \
             --ingress external \
             --cpu 0.5 --memory 1.0Gi
