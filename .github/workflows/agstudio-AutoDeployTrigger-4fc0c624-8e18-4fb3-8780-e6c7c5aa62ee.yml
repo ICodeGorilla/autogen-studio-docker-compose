@@ -1,29 +1,28 @@
 name: Trigger auto deployment for agstudio
 
-# When this action will be executed
 on:
-  # Automatically trigger it when detected changes in repo
   push:
-    branches: 
-      [ master ]
+    branches:
+      - master
     paths:
-    - '**'
-    - '.github/workflows/agstudio-AutoDeployTrigger-4fc0c624-8e18-4fb3-8780-e6c7c5aa62ee.yml'
+      - '**'
+      - '.github/workflows/agstudio-AutoDeployTrigger.yml'
 
-  # Allow manual trigger 
-  workflow_dispatch:      
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    permissions: 
-      id-token: write #This is required for requesting the OIDC JWT Token
-      contents: read #Required when GH token is used to authenticate with private repo
+    permissions:
+      id-token: write  # Required for requesting the OIDC JWT Token
+      contents: read   # Required for repository read access
 
     steps:
-      - name: Checkout to the branch
+      # Step 1: Checkout the code
+      - name: Checkout the branch
         uses: actions/checkout@v2
 
+      # Step 2: Log in to Azure
       - name: Azure Login
         uses: azure/login@v1
         with:
@@ -31,18 +30,25 @@ jobs:
           tenant-id: ${{ secrets.AGSTUDIO_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AGSTUDIO_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build and push container image to registry
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          appSourcePath: ${{ github.workspace }}
-          _dockerfilePathKey_: _dockerfilePath_
-          registryUrl: 
-          registryUsername: ${{ secrets.AGSTUDIO_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.AGSTUDIO_REGISTRY_PASSWORD }}
-          containerAppName: agstudio
-          resourceGroup: DefaultResourceGroup-EUS
-          imageToBuild: default/[parameters('containerAppName')]:${{ github.sha }}
-          _buildArgumentsKey_: |
-            _buildArgumentsValues_
+      # Step 3: Build Docker images using docker-compose and push to Azure Container Registry (ACR)
+      - name: Build and push container images
+        run: |
+          # Log in to ACR
+          az acr login --name ${{ secrets.AGSTUDIO_ACR_NAME }}
 
+          # Tag and push images using docker-compose
+          docker-compose build
+          docker-compose push
 
+      # Step 4: Deploy to Azure Container Apps
+      - name: Deploy to Azure Container Apps
+        run: |
+          # Create or update Azure Container Apps with docker-compose images
+          az containerapp create \
+            --name agstudio \
+            --resource-group DefaultResourceGroup-EUS \
+            --environment agstudio-env \
+            --image ${{ secrets.AGSTUDIO_ACR_URL }}/agstudio:${{ github.sha }} \
+            --target-port 8081 \
+            --ingress external \
+            --cpu 0.5 --memory 1.0Gi
